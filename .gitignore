@@ -1,0 +1,6 @@
+# Ignorer l'env de developpement python
+trl_env/
+
+# Ignorer les __pycache__ aussi
+__pycache__/
+*.pyc
