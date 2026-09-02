@@ -1,12 +1,14 @@
 import random
-from tetrimino import Tetrimino, MATRIX_LEN
+from tetrimino import Tetrimino
+from CONSTANTS import TETRIMINO_LEN, MATRIX_WIDTH, MATRIX_HEIGHT
 from enum import Enum, auto
 
 
 class Action(Enum):
     LEFT = auto()
     RIGHT = auto()
-    DOWN = auto()
+    SOFTDROP = auto()
+    HARDDROP = auto()
     ROTATE = auto()
 
 
@@ -14,7 +16,7 @@ class Action(Enum):
 class Tetris:
     def __init__(self):
         # La grille principal du Jeu (20x10)
-        self.matrix = [[0 for _ in range(10)] for _ in range(20)]
+        self.matrix = [[0 for _ in range(MATRIX_WIDTH)] for _ in range(MATRIX_HEIGHT)]
 
         # Les Tetriminos, l'actuel et le prochain
         self.current_tetrimino = random.choice(list(Tetrimino))
@@ -69,8 +71,8 @@ class Tetris:
             
         piece_matrix = self.current_tetrimino.value[rotation]
         
-        for y in range(MATRIX_LEN):
-            for x in range(MATRIX_LEN):
+        for y in range(TETRIMINO_LEN):
+            for x in range(TETRIMINO_LEN):
                 if piece_matrix[y][x] == 1: # Si la case de la pièce est pleine
                     board_x = self.current_x + x + offset_x
                     board_y = self.current_y + y + offset_y
@@ -95,8 +97,8 @@ class Tetris:
         
         # On superpose la pièce active
         piece_matrix = self.get_tetrimino_matrix()
-        for y in range(MATRIX_LEN):
-            for x in range(MATRIX_LEN):
+        for y in range(TETRIMINO_LEN):
+            for x in range(TETRIMINO_LEN):
                 if piece_matrix[y][x] == 1:
                     board_y = self.current_y + y
                     board_x = self.current_x + x
@@ -131,18 +133,26 @@ class Tetris:
             offset_x = 1
         elif action == Action.LEFT:
             offset_x = -1
-        elif action == Action.DOWN:
+        elif action == Action.SOFTDROP:
             offset_y = 1
+        elif action == Action.HARDDROP:
+            # Chute instantanée : on descend la pièce jusqu'à l'obstacle
+            while not self.check_collision(offset_x=0, offset_y=1):
+                self.current_y += 1
 
         # L'état de la colision
-        collision = self.check_collision(offset_x, offset_y)
+        if action == Action.HARDDROP:
+            collision = True
+            offset_y = 0
+        else:
+            collision = self.check_collision(offset_x, offset_y)
 
         if collision:
-            if action == Action.DOWN:
+            if action in (Action.SOFTDROP, Action.HARDDROP):
                 # VERROUILLAGE : La pièce ne peut plus descendre, on la fige.
                 tetrimino_matrix = self.get_tetimino_matrix()
-                for y in range(MATRIX_LEN):
-                    for x in range(MATRIX_LEN):
+                for y in range(TETRIMINO_LEN):
+                    for x in range(TETRIMINO_LEN):
                         if tetrimino_matrix[y][x] == 1:
                             self.matrix[self.current_y + y][self.current_x + x] = 1
 
@@ -190,11 +200,76 @@ class Tetris:
 
         # On rajoute les lignes vides tout en haut pour compenser celles détruites
         for _ in range(lines_cleared):
-            new_matrix.insert(0, [0 for _ in range(10)])
+            new_matrix.insert(0, [0 for _ in range(MATRIX_WIDTH)])
         
         # On met à jour la grille
         self.matrix = new_matrix
 
+        """
+        On verifie que ya pas un clusteur de cellule flottante  dans le vide
+        Si c'est le cas on le ramener en bas car un cluster doit toujour avoir
+        au moins un pieds qui touche le sol ou touche un autre clusteur qui est
+        ancrer au sol
+        Pour arrivé à resoudre ce problème on applique l'algorithme DFS
+        DFS pour Depth-First Search afin de pour appliquer la gravité à tous 
+        l'amas
+        """
+        if lines_cleared > 0:
+            moved = True
+
+            while moved:
+                moved = False
+                visited = set()
+                unanchored_cells = []
+
+                # Etape A: Parcourir la grille pour isoler les clusteur
+                for y in range(MATRIX_HEIGHT):
+                    for x in range(MATRIX_WIDTH):
+                        if self.matrix[y][x] == 1 and (y, x) not in visited:
+                            cluster = []
+                            stack = [(y, x)]
+                            is_anchored = False
+
+                            # Exploration de clusteur
+                            while stack:
+                                cy, cx = stack.pop()
+                                if (cx, cy) not in visited:
+                                    visited.add((cx, cy))
+                                    cluster.append((cx, cy))
+
+                                    # Si au moins une case touche le sol, tous le clusteur est ancré
+                                    if cy == 19:
+                                        is_anchored = True
+
+                                    # Vérifier les 8 directions (Orthogonales + Diagonales)
+                                    for dy in [-1, 0, 1]:
+                                        for dx in [-1, 0, 1]:
+                                            if dy == 0 and dx == 0: # on ignore la cellules sur laquelle on est
+                                                continue
+                                            ny, nx = cy + dy, cx + dx
+
+                                            if 0 <= ny < MATRIX_HEIGHT and 0 <= nx < MATRIX_WIDTH and self.matrix[ny][nx] == 1:
+                                                if (ny, nx) not in visited:
+                                                    stack.append((ny, nx))
+
+                            # Si le clusteur ne touche pas le sol, on le met dans la liste des flottantd
+                            if not is_anchored:
+                                unanchored_cells.extend(cluster)
+
+                # Etape B: Faire tomber le chusteur j'usqu'a colision avec le sol ou un autre clusteur en bas
+                if unanchored_cells:
+                    # On efface les cellules flottantes de la grille
+                    for cx, cy in unanchored_cells:
+                        self.matrix[cy][cx] = 0
+
+                    # On les redessine toutes simultanément une  case plus bas
+                    for cy, cx in unanchored_cells:
+                        self.matrix[cy + 1][cx] = 1
+
+                    # on realance la boucle: le clusteur continuera à chutter jusqu'à
+                    # s'ancrer au sol ou fusionner avec un clusteur déjà ancré
+                    moved = True
+                
         # Calcul de la récompense type Tetris pour encourager les combos
         reward = 0
         if lines_cleared == 1:
