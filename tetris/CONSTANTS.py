@@ -1,0 +1,17 @@
+"""
+Ce fichier contien les constantes tetris necessaire au develeppement du PROJET TETRIS_RL
+"""
+# Constante pour le moteur physique de tetris 
+TETRIMINO_LEN = 4
+MATRIX_WIDTH, MATRIX_HEIGHT = 10, 20
+
+# CONSTANTE GRAVITATIONEL
+MAX_SPEED = 41
+
+# Constante de RENDU GRAPHIQUE DU JEU TETRIS
+BACKGROUND_COLOR = (0, 0, 0)
+CELL_COLOR = (0, 255, 0)
+WIDTH, HEIGHT = 519, 709
+CELL_WIDTH, CELL_HEIGHT = 30, 30
+GRAPHIC_MATRIX_WIDTH, GRAPHIC_MATRIX_HEIGHT = 300, 600
+X, Y = 15, 92

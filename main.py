@@ -1,7 +1,7 @@
 import pygame
-from tetris import Tetris, Action
-from CONSTANTS import WIDTH, HEIGHT, BACKGROUND_COLOR
-from game_ui_render import *
+from tetris.tetris import Tetris, Action
+from tetris.CONSTANTS import WIDTH, HEIGHT, BACKGROUND_COLOR
+from tetris.game_ui_render import *
 
 
 
@@ -85,16 +85,16 @@ while running:
         
         # Action du Joueur
         if action:
-            reward = env.set_state(action=action)
+            reward, _ = env.set_state(action=action)
             if reward > 0 :
-                score += 2 * (reward + speed)
+                score += 10 * (reward + speed)
 
         # Verifier si la gaviter doit s'activer
         # Action de la Grapvité, une action automatiser
         if pygame.time.get_ticks() - start >= 500 - 10 * (speed - 1):
-                gravity_reward = env.set_state(Action.SOFTDROP)
+                gravity_reward, _ = env.set_state(Action.SOFTDROP)
                 if gravity_reward > 0:
-                    score += 2 * (gravity_reward + speed)
+                    score += 10 * (gravity_reward + speed)
                 start = pygame.time.get_ticks()
 
         # Mise à jour de l'affichage
@@ -117,3 +117,6 @@ while running:
 
 # Quitter pygame
 pygame.quit()
+
+with open(BEST_SCORE_PATH, "w") as file:
+    file.write(str(best_score))
