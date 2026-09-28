@@ -2,6 +2,7 @@ import random
 from tetris.tetrimino import Tetrimino
 from tetris.CONSTANTS import TETRIMINO_LEN, MATRIX_WIDTH, MATRIX_HEIGHT
 from enum import Enum, auto
+from collections import deque
 
 
 class Action(Enum):
@@ -21,6 +22,9 @@ class Tetris:
         # Les Tetriminos, l'actuel et le prochain
         self.current_tetrimino = random.choice(list(Tetrimino))
         self.next_tetrimino = random.choice(list(Tetrimino))
+
+        # Nombre de piece placée
+        self.pieces_placed = 0
 
         # Rotation actuelle
         self.current_rotation = 0
@@ -54,9 +58,6 @@ class Tetris:
             else:
                 break
         return x, y
-        
-
-
 
     def check_collision(self, offset_x=0, offset_y=0, rotation=None):
         """
@@ -78,13 +79,32 @@ class Tetris:
                     board_y = self.current_y + y + offset_y
                     
                     # 1. Vérification des murs (Gauche, Droite, Bas)
-                    if board_x < 0 or board_x >= 10 or board_y >= 20:
+                    if board_x < 0 or board_x >= MATRIX_WIDTH or board_y >= MATRIX_HEIGHT:
                         return True
                         
                     # 2. Vérification des blocs figés sur la grille
                     if board_y >= 0 and self.matrix[board_y][board_x] == 1:
                         return True
                         
+        return False
+
+    def _check_colision_at(self, x, y, rotation):
+        """
+        Version de check_collision suivant une coordonnée donnée du tetrimino (x, y, rotation)
+        """
+        tetrimino_matrix = self.current_tetrimino.value[rotation]
+
+        for dy in range(TETRIMINO_LEN):
+            for dx in range(TETRIMINO_LEN):
+                if tetrimino_matrix[dy][dx] == 1:
+                    board_x = x + dx
+                    board_y = y +dy
+
+                    if board_x < 0 or board_x >= MATRIX_WIDTH or board_y >= MATRIX_HEIGHT:
+                        return True
+                    if board_y >= 0 and self.matrix[board_y][board_x] == 1:
+                        return True
+
         return False
 
     def get_full_state(self):
@@ -183,7 +203,9 @@ class Tetris:
                             self.matrix[self.current_y + y][self.current_x + x] = 1
 
                 # On elimine les lignes 
+                self.pieces_placed += 1
                 reward, shaped_reward = self.clear_lines()
+
 
                 # RESPONSABILITE : On charge la piece suivante
                 self.current_tetrimino = self.next_tetrimino
@@ -346,6 +368,46 @@ class Tetris:
         # Si on arrive ici, aucun kick n'a marché, la pièce reste bloquée
         return False
 
+    def _try_rotation_from(self, x, y, rotation):
+        """
+        Reproduit la logique de wall-kick de try_rotation(), mais à partir
+        d'une position (x, y, rotation) arbitraire, sans muter self.
+        Retourne le nouvel état (x, y, rotation) si la rotation réussit,
+        ou None si elle est totalement bloquée (aucun kick ne marche).
+        """
+        rotation_number = len(self.current_tetrimino.value)
+        new_rotation = (rotation + 1) % rotation_number
+
+        kick_tests = [
+            (0, 0),
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (-2, 0),
+            (2, 0),
+            (-1, -1),
+            (1, -1),
+        ]
+
+        for dx, dy in kick_tests:
+            nx, ny = x + dx, y + dy
+            if not self._check_colision_at(nx, ny, new_rotation):
+                return (nx, ny, new_rotation)
+
+        return None
+
+    def _simulate_harddrop(self, x, y, rotation):
+        """
+        Simule Action.HARDDROP depuis une position (x, y, rotation) arbitraire :
+        fait tomber la pièce jusqu'à la première collision, exactement comme
+        set_state() le fait pour Action.HARDDROP, mais sans muter self.
+        Retourne la position finale (x, final_y, rotation).
+        """
+        final_y = y
+        while not self._check_colision_at(x, final_y + 1, rotation):
+            final_y += 1
+        return (x, final_y, rotation)
+
     def reward_shaping(self):
         """
         Reward Shaping : donner des mini-récompenses denses à l'agent 
@@ -394,3 +456,77 @@ class Tetris:
 
         # On retourne le malus + le shaped reward
         return shaped_reward + hole_malus
+
+    def find_final_states(self):
+        """
+        BFS sur l'espace des états (x, y, rotation) atteignables avec
+        LEFT, RIGHT, ROTATE, SOFTDROP.
+
+        À CHAQUE état visité, on simule un HARDDROP immédiat pour connaitre
+        le landing correspondant. Le BFS explorant par longueur de chemin
+        croissante, le premier chemin qui atteint un landing donné est
+        garanti le plus court.
+        """
+        start = (self.current_x, self.current_y, self.current_rotation)
+
+        if self._check_colision_at(*start):
+            return []
+
+        visited = {start}
+        queue = deque([(start, [])])
+        final_states = {}  # clé : (x, final_y, rotation) -> chemin le plus court
+
+        while queue:
+            (x, y, rotation), path = queue.popleft()
+
+            # --- Depuis ce nœud, HARDDROP direct : quel landing ça donne ? ---
+            landing = self._simulate_harddrop(x, y, rotation)
+            if landing not in final_states:
+                final_states[landing] = path + [Action.HARDDROP]
+
+            # --- Génération des voisins (translation + descente manuelle) ---
+            for nx, ny, nrot, action in (
+                (x - 1, y, rotation, Action.LEFT),
+                (x + 1, y, rotation, Action.RIGHT),
+                (x, y + 1, rotation, Action.SOFTDROP),
+            ):
+                if not self._check_colision_at(nx, ny, nrot) and (nx, ny, nrot) not in visited:
+                    visited.add((nx, ny, nrot))
+                    queue.append(((nx, ny, nrot), path + [action]))
+
+            # --- Rotation (avec wall-kicks) ---
+            rotated = self._try_rotation_from(x, y, rotation)
+            if rotated is not None and rotated not in visited:
+                visited.add(rotated)
+                queue.append((rotated, path + [Action.ROTATE]))
+
+        # --- Construction du résultat ---
+        results = []
+        for (x, y, rotation), path in final_states.items():
+            results.append({
+                "x": x,
+                "y": y,
+                "rotation": rotation,
+                "path": path,
+                "state": self._build_final_grid(x, y, rotation),
+            })
+
+        return results
+
+    def _build_final_grid(self, x, y, rotation):
+        """
+        Construit la grille finale (matrix figée + pièce posée à x, y, rotation)
+        sans modifier self.matrix.
+        """
+        grid = [row[:] for row in self.matrix]
+        piece_matrix = self.current_tetrimino.value[rotation]
+
+        for py in range(TETRIMINO_LEN):
+            for px in range(TETRIMINO_LEN):
+                if piece_matrix[py][px] == 1:
+                    board_y = y + py
+                    board_x = x + px
+                    if 0 <= board_y < MATRIX_HEIGHT and 0 <= board_x < MATRIX_WIDTH:
+                        grid[board_y][board_x] = 1
+
+        return grid

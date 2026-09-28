@@ -1,173 +1,213 @@
+import random
+from collections import deque
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import random
-from collections import deque
-from tetris.tetris import Action
+
+from tetris.tetrimino import Tetrimino
 
 
-# Si  GPU Disponible
+# Si GPU disponible
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-class DQN(nn.Module):
+TETRIMINO_LIST = list(Tetrimino)
+NUM_TETRIMINO = len(TETRIMINO_LIST)
+
+
+def _tetrimino_to_onehot(tetrimino):
+    vec = [0.0] * NUM_TETRIMINO
+    vec[TETRIMINO_LIST.index(tetrimino)] = 1.0
+    return vec
+
+
+def extract_features(grid):
+    """
+    Calcule les 4 features classiques utilisées pour évaluer un afterstate
+    Tetris : lignes complètes, trous, bumpiness (irrégularité des hauteurs
+    entre colonnes adjacentes), hauteur agrégée.
+
+    grid : grille 20x10 (list of lists de 0/1), un afterstate déjà posé
+           (ou n'importe quel état de plateau figé).
+
+    Retourne une liste de 4 floats.
+    """
+    height = len(grid)
+    width = len(grid[0])
+
+    # --- Hauteurs de colonnes ---
+    heights = []
+    for col in range(width):
+        col_height = 0
+        for row in range(height):
+            if grid[row][col] == 1:
+                col_height = height - row
+                break
+        heights.append(col_height)
+
+    aggregate_height = sum(heights)
+
+    # --- Bumpiness ---
+    bumpiness = sum(abs(heights[i] - heights[i + 1]) for i in range(width - 1))
+
+    # --- Trous (case vide sous au moins un bloc plein dans la même colonne) ---
+    holes = 0
+    for col in range(width):
+        block_found = False
+        for row in range(height):
+            if grid[row][col] == 1:
+                block_found = True
+            elif block_found and grid[row][col] == 0:
+                holes += 1
+
+    # --- Lignes complètes ---
+    lines_cleared = sum(1 for row in grid if all(cell == 1 for cell in row))
+
+    return [float(lines_cleared), float(holes), float(bumpiness), float(aggregate_height)]
+
+
+def build_input(grid, next_tetrimino):
+    """
+        Concatène les 4 features du board + le one-hot de la pièce suivante.
+    """
+    return extract_features(grid) + _tetrimino_to_onehot(next_tetrimino)
+
+
+class ValueNetwork(nn.Module):
+    """
+    Petit MLP qui évalue un afterstate à partir de ses 4 features
+    (lines_cleared, holes, bumpiness, aggregate_height).
+    Sort une seule valeur scalaire V(features).
+    """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Couches de Convolution
-        # Entrée : 1 canal (noir et blanc), sortie : 16 filtres, fenêtre de 3x3
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1)
-        # Sortie : 32 filtres
-        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.fc1 = nn.Linear(4 + NUM_TETRIMINO, 64)
+        self.fc2 = nn.Linear(64, 64)
+        self.out = nn.Linear(64, 1)
 
-        # 
-        # Entrer : 32 * (4*10 pour la piece actuelle et la prochaine + 1*10 ligne  de separation
-        # + 20*10 la matrice de tetrice) = 32 * 25*10 = 8000 
-        self.fc1 = nn.Linear(8000, 256)
-        self.fc2 = nn.Linear(256, 64)
-        # Sortie : 6 valeurs (les Q-Values pour les 6 Actions(y compris rien !))
-        self.out = nn.Linear(64, 6)
-
-    def forward(self, x):
-        # Convolution
-        x = torch.relu(self.conv1(x))
-        x = torch.relu(self.conv2(x))
-
-        # Applatissiment
-        x = x.view(x.size(0), -1)
-
-        # Passages dans le Danse
-        x = torch.relu(self.fc1(x))
+    def forward(self, features):
+        x = torch.relu(self.fc1(features))
         x = torch.relu(self.fc2(x))
         return self.out(x)
 
 
-
 class Agent:
+    """
+    Agent qui choisit, pour chaque pièce, un état final (afterstate) parmi
+    ceux générés par env.find_final_states(), évalué via ses 4 features.
+
+    Apprentissage en TD(0) sur la chaîne des afterstates réellement
+    choisis (pas de max recalculé pendant replay(), pas de target_net) :
+
+        V(état_avant) <- reward + gamma * V(état_choisi_suivant)
+    """
+
     def __init__(self, weight_path):
-        # Hyperparamètre
-        self.gamma = 0.99           # Importance du futur
-        self.epsilon = 1.0          # Taux d'exploration ici 100ù au début
-        self.epsilon_min = 0.01     # Taux minimal d'exploration
-        self.epsilon_decay = 0.995  # Taux de réduction de l'exploration
-        self.batch_size = 32        # Nombre de souvenirs étudiés par boucle
+        # Hyperparamètres
+        self.gamma = 0.99            # Importance du futur
+        self.epsilon = 1.0           # Taux d'exploration, 100% au début
+        self.epsilon_min = 1e-3      # Taux minimal d'exploration
+        self.epsilon_decay = 0.997   # Taux de réduction de l'exploration
+        self.batch_size = 512        # Nombre de souvenirs étudiés par boucle
 
         # Mémoire
-        self.memory = deque(maxlen=10000)
+        self.memory = deque(maxlen=30000)
 
-        # Intialisation des Réseaux
-        self.policy_net, self.target_net = self.load(weight_path)
+        # Initialisation du réseau (un seul, plus de target_net)
+        self.policy_net = self.load(weight_path)
         self.policy_net.to(device=device)
-        self.target_net.to(device=device)
 
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=0.001)
-        self.criterion = nn.SmoothL1Loss() # MSELoss() ou SmoothL1Loss()
+        self.criterion = nn.MSELoss()
 
-        # Les action légales
-        self.actions = [None, Action.RIGHT, Action.LEFT, Action.ROTATE, Action.SOFTDROP, Action.HARDDROP]
+    def act(self, final_states, next_tetrimino, train_mode=True):
+        """
+        Choisit un état final parmi les candidats.
 
+        final_states : liste retournée par env.find_final_states() pour
+                        la pièce actuelle.
 
-
-    def remenber(self, state, action, reward, next_state, done):
-        """Enregistre une transition dans la mémoire"""
-        self.memory.append((state, action, reward, next_state, done))
-
-
-    def act(self, state, train_mode=True):
-        """Prend une action selon la statégie Epsilo,-Greedy"""
-        # Chois aléatoire (Exploration)
+        Retourne le dict candidat choisi (contient "state" et "path").
+        """
         if train_mode and random.random() <= self.epsilon:
-            return random.choice(self.actions)
+            return random.choice(final_states)
 
-        # Chois intelligznt (Exploitation)
-        # Tenseur (1, 1, 25, 10)
-        state_tensor = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0).to(device=device)
+        with torch.no_grad():
+            feats = torch.FloatTensor(
+                [build_input(final_state["state"], next_tetrimino) for final_state in final_states]
+            ).to(device=device)
+            values = self.policy_net(feats).squeeze(1)
 
-        with torch.no_grad(): # Prediction
-            q_values = self.policy_net(state_tensor)
+        best_index = torch.argmax(values).item()
+        return final_states[best_index]
 
-        action_index = torch.argmax(q_values).item()
-        return self.actions[action_index]
+    def remember(self, state_features, next_state_features, reward, done):
+        """
+        Enregistre une transition dans la mémoire.
 
+        state_features      : features du plateau AVANT le placement de
+                               cette pièce (= features de l'afterstate
+                               précédent dans la chaîne).
+        next_state_features : features du plateau APRÈS verrouillage de
+                               cette pièce (l'afterstate réellement atteint,
+                               pas un candidat recalculé).
+        reward               : récompense obtenue en posant la pièce.
+        done                 : True si la partie est terminée.
+        """
+        self.memory.append((state_features, next_state_features, reward, done))
 
     def replay(self):
-        """La routine d'entrainement"""
+        """Routine d'entraînement sur un mini-batch de la mémoire (TD(0))."""
         if len(self.memory) < self.batch_size:
-            return # pas assez de souvenirs pour s'netrainer
+            return  # pas assez de souvenirs pour s'entrainer
 
         minibatch = random.sample(self.memory, self.batch_size)
 
-        # Extraction des tenseurs
-        states = []
-        actions = []
-        rewards = []
-        next_states = []
-        dones = []
-        for memory in minibatch:
-            states.append([memory[0]])
-            actions.append(self.actions.index(memory[1]))
-            rewards.append(memory[2])
-            next_states.append([memory[3]])
-            dones.append(memory[4])
-        states_tensor = torch.FloatTensor(states).to(device=device)
-        actions_tensor = torch.LongTensor(actions).unsqueeze(1).to(device=device)
-        rewards_tensor = torch.FloatTensor(rewards).flatten().to(device=device)
-        next_states_tensor = torch.FloatTensor(next_states).to(device=device)
-        dones_tensor = torch.tensor(dones, dtype=torch.bool).to(device=device)
+        states = torch.FloatTensor(
+            [s for s, _, _, _ in minibatch]
+        ).to(device=device)
+        next_states = torch.FloatTensor(
+            [ns for _, ns, _, _ in minibatch]
+        ).to(device=device)
+        rewards = torch.FloatTensor(
+            [r for _, _, r, _ in minibatch]
+        ).to(device=device)
+        dones = torch.FloatTensor(
+            [float(d) for _, _, _, d in minibatch]
+        ).to(device=device)
 
-        # Calcul des prédiction Actuelles (Q-Values)
-        Q_values = self.policy_net(states_tensor)
-        Q_state_actions = torch.gather(Q_values,
-                                      dim=1, index=actions_tensor)
-        
-       # Calcul de la meilleur Q_value futur possible
-        Q_next_values = self.target_net(next_states_tensor)
-        Q_next_state_actions = torch.where(dones_tensor, 0.0,
-                                           Q_next_values.max(dim=1)[0])
-        
-        # L'equation de Bellman (La Target)
-        target = rewards_tensor + self.gamma * Q_next_state_actions
+        # Valeur actuelle prédite pour chaque état "avant"
+        V_states = self.policy_net(states).squeeze(1)
 
-        # Retropropagation (Learning)
-        loss = self.criterion(Q_state_actions, target.unsqueeze(1))
+        # Cible : reward + gamma * V(état choisi réellement atteint), sans max
+        with torch.no_grad():
+            V_next = self.policy_net(next_states).squeeze(1)
+            targets = rewards + self.gamma * V_next * (1 - dones)
+
+        loss = self.criterion(V_states, targets)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
         return loss.item()
 
-
     def exploite_more(self):
-        # Declin de la curiosité
+        # Déclin de la curiosité
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
 
-    def update_target_network(self):
-        self.target_net.load_state_dict(self.policy_net.state_dict())
-
-
     def save(self, filename="tetris_model.pth"):
-        """Sauvegarde des poids du réseau principal"""
+        """Sauvegarde des poids du réseau."""
         torch.save(self.policy_net.state_dict(), filename)
 
-
     def load(self, weight_path):
-        """charger les pois dans le réseaux"""
-        policy = DQN()
-        target = DQN()
-
+        """Charge les poids dans le réseau."""
+        policy = ValueNetwork()
         try:
             policy.load_state_dict(torch.load(weight_path))
             policy.eval()
-        except:
+        except Exception:
             pass
-
-        target.load_state_dict(policy.state_dict())
-        target.eval()   # Le réseau cible ne s'entraine Jamais
-
-        return policy, target
-
-
-        
-
-        
-
+        return policy

@@ -1,169 +1,255 @@
-# 🟩 TETRIS_RL : Environnement d'Apprentissage par Renforcement
+# 🟩 TETRIS_RL : un agent qui apprend à jouer à Tetris
 
 ![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-Value%20Network-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)
 ![Pygame](https://img.shields.io/badge/Pygame-2.6.1-00CC66?style=for-the-badge&logo=pygame&logoColor=white)
-![Reinforcement Learning](https://img.shields.io/badge/Reinforcement%20Learning-En%20cours-orange?style=for-the-badge)
-![Status](https://img.shields.io/badge/Statut-Environnement%20Pr%C3%AAt-blue?style=for-the-badge)
+![Best score](https://img.shields.io/badge/Meilleur%20score%20agent-262%20940-brightgreen?style=for-the-badge)
+![Status](https://img.shields.io/badge/Statut-Termin%C3%A9-blue?style=for-the-badge)
 
-Bienvenue dans le dépôt du projet **TETRIS_RL** !
+<p align="center">
+  <img src="./preview.png" alt="Aperçu de l'agent en train de jouer" width="320">
+</p>
 
-Ce projet est un environnement Tetris personnalisé et robuste, développé de zéro en Python et Pygame. Conçu principalement comme un terrain d'essai pour les agents d'**Apprentissage par Renforcement (RL)**, il intègre une physique avancée (comme la gravité par amas basée sur un algorithme DFS) tout en conservant une interface rétro entièrement jouable pour les joueurs humains.
+**TETRIS_RL** est un projet complet d'**apprentissage par renforcement** : un moteur Tetris écrit de zéro en Python/Pygame, un chercheur de chemins (BFS) et un agent PyTorch qui apprend seul à jouer, sans aucune donnée humaine.
 
----
-
-## 📖 Table des Matières
-
-- [Aperçu](#-aperçu)
-- [Mécaniques Principales & Physique](#️-mécaniques-principales--physique)
-- [Intégration RL & Flux de Données](#-intégration-rl--flux-de-données)
-- [Tableau de Bord Pygame](#-tableau-de-bord-pygame)
-- [Contrôles](#️-contrôles)
-- [Structure du Dépôt](#-structure-du-dépôt)
-- [Démarrage Rapide](#-démarrage-rapide)
-- [Feuille de Route du Projet](#-feuille-de-route-du-projet)
-- [Technologies Utilisées](#️-technologies-utilisées)
+Le **meilleur score de l'agent est de 262 940** (contre 395 pour le meilleur score humain enregistré dans `best_score.txt`).
 
 ---
 
-## 🎯 Aperçu
+## 📖 Table des matières
 
-L'objectif de ce projet est de créer une passerelle parfaite entre un jeu d'arcade classique et un environnement d'entraînement d'IA moderne. Le moteur sépare strictement l'état physique du jeu de son rendu visuel, permettant aux agents de traiter les données en quelques millisecondes, ou aux humains de jouer en temps réel à 30 FPS.
-
-- **Moteur de Jeu** — Un système de grille 10×20 gérant les collisions complexes, les *Wall Kicks* et l'effacement des lignes.
-- **Physique Personnalisée** — Implémentation des *Sticky Blocks* (gravité par amas) où les blocs flottants déconnectés tombent de manière réaliste.
-- **Prêt pour l'IA** — Des méthodes comme `get_full_state()` exposent les matrices brutes directement aux réseaux de neurones.
-- **Interface Rétro** — Un visualiseur Pygame totalement découplé imitant l'esthétique des anciens terminaux cathodiques.
-
----
-
-## 🏗️ Mécaniques Principales & Physique
-
-L'environnement (`tetris.py`) agit comme la source de vérité absolue, gérant toutes les transformations mathématiques et les vérifications des limites spatiales.
-
-| Fonctionnalité | Description | Détail de l'implémentation |
-|---|---|---|
-| **Matrice de la Grille** | Dimensions standard de Tetris | 10 colonnes par 20 lignes (`MATRIX_WIDTH`, `MATRIX_HEIGHT`) |
-| **Wall Kicks** | Collisions intelligentes lors de la rotation | Teste 8 décalages X/Y successifs (dont deux diagonales) pour faire rebondir les pièces contre les murs ou le sol si la rotation échoue |
-| **Gravité par Amas** | Les blocs non soutenus tombent de manière fluide | Utilise l'algorithme **DFS (Depth-First Search)** pour regrouper les cellules adjacentes (orthogonales et diagonales) et faire chuter les amas non ancrés au sol |
-| **Chutes Unifiées** | Mécanique de descente standardisée | Le Soft Drop (gravité/accélération du joueur) et le Hard Drop (téléportation instantanée) utilisent la même logique de collision sous-jacente |
-| **Vitesse Dynamique** | Difficulté progressive | Le délai de chute diminue automatiquement en fonction du score du joueur, avec une limite fixée à `MAX_SPEED` |
+- [Démo vidéo](#-démo-vidéo)
+- [Le moteur de jeu](#️-le-moteur-de-jeu)
+- [L'agent : méthode de RL utilisée](#-lagent--méthode-de-rl-utilisée)
+- [Résultats et courbes d'entraînement](#-résultats-et-courbes-dentraînement)
+- [Jouer soi-même](#️-jouer-soi-même)
+- [Structure du dépôt](#-structure-du-dépôt)
+- [Démarrage rapide](#-démarrage-rapide)
+- [Technologies](#️-technologies)
+- [Licence](#-licence)
 
 ---
 
-## 🔄 Intégration RL & Flux de Données
+## 🎬 Démo vidéo
 
-L'architecture est explicitement conçue pour entraîner des *Value Networks* (réseaux de valeur) et des agents. L'état du jeu est mis à jour via la méthode `set_state(action)`, qui renvoie la récompense immédiate pour l'agent.
+Entraînement de l'agent en direct (lecture en boucle) :
 
-**Système de Récompense (Reward) :**
+<video src="./tetris_rl_agent_training_demo_compressed.mp4" controls autoplay loop muted playsinline width="320">
+  Votre navigateur ne supporte pas la balise vidéo.
+  <a href="./tetris_rl_agent_training_demo_compressed.mp4">Télécharger la vidéo</a>
+</video>
 
-| Lignes Effacées | Récompense |
+> Si la vidéo ne s'affiche pas dans votre visionneuse Markdown,
+> [ouvrez-la directement ici](./tetris_rl_agent_training_demo_compressed.mp4).
+
+---
+
+## 🏗️ Le moteur de jeu
+
+Le moteur (`tetris/tetris.py`) est la source de vérité : il gère les collisions, les rotations, les récompenses et la physique. Il est strictement séparé du rendu (`tetris/game_ui_render.py`), ce qui permet à l'agent de jouer à vitesse maximale et à un humain de jouer en temps réel à 30 FPS.
+
+| Fonctionnalité | Description |
 |---|---|
-| 1 ligne | **3 points** |
-| 2 lignes | **8 points** |
-| 3 lignes | **16 points** |
-| 4 lignes (Tetris) | **50 points** |
+| **Grille** | 10 colonnes × 20 lignes, 7 tétriminos (I, O, L, J, S, Z, T) avec pièce suivante visible |
+| **Wall Kicks** | 8 décalages testés successivement (dont 2 diagonales) quand une rotation est bloquée |
+| **Gravité par amas** | Après un effacement de ligne, un **DFS** (voisinage à 8 directions) isole les amas de blocs ; ceux qui ne touchent pas le sol tombent jusqu'à s'ancrer |
+| **Chutes unifiées** | Soft Drop, Hard Drop et gravité partagent la même logique de collision et de verrouillage |
+| **Vitesse dynamique** | `speed = 1 + score // 500`, plafonnée à `MAX_SPEED = 41` ; l'intervalle de gravité passe de 500 ms à 50 ms minimum |
+| **BFS de placements** | `find_final_states()` explore toutes les positions atteignables et renvoie chaque placement final avec le **plus court chemin d'actions** pour l'atteindre |
 
-Le **score affiché** dans le jeu prend en plus en compte la vitesse courante (`score += 2 * (reward + speed)`), ce qui valorise les lignes effacées à un niveau de vitesse plus élevé — une incitation supplémentaire, utile pour un futur agent, à survivre plus longtemps tout en restant efficace.
+### Récompenses
 
-**Observation de l'État par l'Agent :**
-La fonction `get_full_state()` génère en toute sécurité une vue combinée de la grille figée et de la pièce active en train de chuter, fournissant la matrice exacte requise pour la couche d'entrée d'une IA, et ce **sans altérer l'état réel du jeu**.
+À chaque verrouillage de pièce, l'environnement renvoie une récompense de lignes et un *reward shaping* dense.
 
----
+| Lignes effacées | Récompense |
+|---|---|
+| 1 ligne | 3 |
+| 2 lignes | 8 |
+| 3 lignes | 16 |
+| 4 lignes (Tetris) | 50 |
 
-## 📊 Tableau de Bord Pygame
+Le **reward shaping** ajoute un bonus de remplissage de ligne et un malus de −1 par trou créé sous la pièce posée, afin de guider l'agent avant même qu'il sache effacer des lignes.
 
-Le rendu visuel est intégralement pris en charge par `game_ui_render.py` à l'aide de la bibliothèque Pygame.
-
-**Éléments Clés de l'Interface :**
-
-- **Esthétique Terminal** : des cellules vert vif (`(0, 255, 0)`) dessinées sur un fond noir absolu (`(0, 0, 0)`).
-- **Pièce Suivante** : une zone d'affichage dédiée montrant le Tetrimino à venir.
-- **Statistiques en Direct** : suivi en temps réel du score actuel (`SCORE`) et de la vitesse (`SPEED`).
-- **Record Persistant** : le meilleur score (`BEST SCORE`) est lu et sauvegardé de manière persistante dans un fichier texte local (`best_score.txt`).
-- **État Game Over** : un écran superposé dédié permettant de relancer instantanément la partie en appuyant sur la touche `ENTRÉE`.
+Le **score affiché** est calculé séparément : chaque effacement rapporte `10 × (récompense + vitesse)`.
 
 ---
 
-## ⌨️ Contrôles
+## 🧠 L'agent : méthode de RL utilisée
+
+L'agent ne choisit pas une touche à chaque instant : **pour chaque pièce, il choisit directement où et dans quelle orientation la poser.** Le BFS de l'environnement se charge ensuite de trouver la séquence de touches qui y mène. Cela réduit énormément l'espace de décision (quelques dizaines de placements au lieu de suites de touches) et rend l'apprentissage bien plus stable.
+
+### Vue d'ensemble de la boucle
+
+```mermaid
+flowchart LR
+    A["Nouvelle pièce"] --> B["BFS : tous les placements finaux"]
+    B --> C["Le réseau évalue chaque afterstate"]
+    C --> D["Choix ε-greedy"]
+    D --> E["Exécution du chemin d'actions"]
+    E -->|"la gravité invalide le plan"| B
+    E -->|"pièce verrouillée"| F["Transition en mémoire + entraînement"]
+    F --> A
+```
+
+### 1. Afterstates et Value Network
+
+L'agent apprend une **fonction de valeur d'afterstate** `V(s)` : la valeur du plateau *juste après* avoir posé la pièce. C'est plus simple qu'un Q-learning classique, car les conséquences d'un placement sont déterministes ; il suffit d'évaluer chaque plateau résultant et de prendre le meilleur.
+
+**Entrée du réseau (11 valeurs)** :
+
+| Feature | Description |
+|---|---|
+| `lines_cleared` | Lignes complètes sur le plateau évalué |
+| `holes` | Cases vides situées sous un bloc plein dans une même colonne |
+| `bumpiness` | Somme des écarts de hauteur entre colonnes adjacentes |
+| `aggregate_height` | Somme des hauteurs de toutes les colonnes |
+| one-hot × 7 | Type de la pièce suivante |
+
+**Architecture** : MLP `11 → 64 → 64 → 1` (ReLU), qui renvoie une valeur scalaire.
+
+### 2. Apprentissage TD(0)
+
+L'entraînement se fait par **différence temporelle à un pas**, sur la chaîne des afterstates réellement joués :
+
+```
+V(état avant)  ←  r + γ · V(état réel après verrouillage) · (1 − done)
+```
+
+Choix de conception :
+
+- **Pas de max recalculé** pendant l'entraînement et **pas de réseau cible** : la cible utilise l'afterstate réellement atteint, ce qui reste correct même quand la gravité par amas modifie le plateau différemment de la prédiction.
+- **Experience Replay** : mémoire de 30 000 transitions, mini-batchs de 512.
+- **Perte** : MSE, optimiseur Adam.
+
+| Hyperparamètre | Valeur |
+|---|---|
+| γ (discount) | 0.99 |
+| Learning rate | 1e-3 |
+| ε initial → minimal | 1.0 → 1e-3 |
+| Décroissance de ε | ×0.997 par partie |
+| Taille du batch | 512 |
+| Taille de la mémoire | 30 000 |
+| Nombre de parties | 5 000 |
+
+### 3. Exploration
+
+Politique **ε-greedy** : avec une probabilité ε, l'agent joue un placement aléatoire parmi les candidats ; sinon il joue celui dont la valeur prédite est maximale. ε décroît à chaque partie, de l'exploration pure vers l'exploitation.
+
+### 4. Gestion de la gravité pendant l'entraînement
+
+Le jeu tourne avec sa vraie gravité : la pièce descend pendant que l'agent exécute son plan. Quand la gravité déplace la pièce sans la verrouiller, le plan est **invalidé et recalculé** depuis la position réelle. Une transition n'est enregistrée qu'au **verrouillage effectif** de la pièce (détecté via le compteur `pieces_placed`), en utilisant l'état réel du plateau.
+
+---
+
+## 📈 Résultats et courbes d'entraînement
+
+Les métriques sont suivies avec TensorBoard puis exportées en SVG.
+
+**Meilleur score de l'agent : 262 940**
+
+### Score par partie
+
+![Progression du score](./Progression_Score.svg)
+
+### Perte moyenne par partie
+
+![Progression de la perte moyenne](./Progression_Mean-Loss.svg)
+
+### Perte à chaque étape d'entraînement
+
+![Progression de la perte](./Progression_Loss.svg)
+
+Pour rejouer les courbes : `tensorboard --logdir runs`
+
+---
+
+## ⌨️ Jouer soi-même
+
+Le jeu est entièrement jouable par un humain avec `python main.py`.
 
 | Touche | Action |
 |---|---|
-| `←` | Déplacer la pièce à gauche |
-| `→` | Déplacer la pièce à droite |
+| `←` / `→` | Déplacer la pièce |
 | `↓` | Chute douce (Soft Drop) |
 | `↑` | Chute instantanée (Hard Drop) |
-| `Espace` | Faire pivoter la pièce |
-| `Entrée` | Relancer la partie après un Game Over |
+| `Espace` | Rotation |
+| `Entrée` | Relancer après un Game Over |
+
+Pendant l'entraînement (`python train.py`), la touche `V` active ou désactive l'affichage. Sans affichage, l'entraînement tourne bien plus vite.
 
 ---
 
-## 📂 Structure du Dépôt
+## 📂 Structure du dépôt
 
 ```text
-tetris_rl/
+TETRIS_RL/
 │
-├── trl_env/                   # Environnement virtuel ignoré par Git
-├── __pycache__/                # Fichiers Python compilés ignorés par Git
-├── best_score.txt              # Stockage persistant du record historique (meilleur score)
-├── CONSTANTS.py                 # Paramètres globaux : dimensions des matrices, couleurs, vitesse maximale
-├── game_ui_render.py            # Fonctions de rendu Pygame pour les cellules, la grille et l'interface utilisateur
-├── main.py                      # Boucle principale (30 FPS), gestion des événements et de la gravité dynamique
-├── requirement.txt              # Dépendances du projet (pygame==2.6.1)
-├── tetrimino.py                 # Enumération définissant les matrices 4x4 de rotation pour I, O, L, J, S, Z, T
-└── tetris.py                    # Moteur principal : collisions, récompenses, gestion de l'état et gravité DFS
+├── tetris/                          # Package : moteur du jeu
+│   ├── __init__.py
+│   ├── CONSTANTS.py                 # Dimensions, couleurs, vitesse maximale
+│   ├── game_ui_render.py            # Rendu Pygame (style terminal vert)
+│   ├── tetrimino.py                 # Matrices de rotation des 7 pièces
+│   └── tetris.py                    # Moteur : collisions, récompenses, gravité DFS, BFS
+│
+├── agent.py                         # Features, Value Network, Agent (ε-greedy, TD(0), replay)
+├── train.py                         # Boucle d'entraînement + logs TensorBoard
+├── main.py                          # Mode humain
+│
+├── agent_weight.pth                 # Poids entraînés de l'agent
+├── best_agent_score.txt             # Record de l'agent (262940)
+├── best_score.txt                   # Record humain
+├── runs/                            # Logs TensorBoard
+│
+├── preview.png                      # Aperçu du jeu
+├── Progression_Score.svg            # Courbe : score
+├── Progression_Mean-Loss.svg        # Courbe : perte moyenne par partie
+├── Progression_Loss.svg             # Courbe : perte par étape
+├── tetris_rl_agent_training_demo_compressed.mp4   # Vidéo de démonstration
+│
+├── requirement.txt
+├── LICENSE
+└── README.md
 ```
 
 ---
 
-## 🚀 Démarrage Rapide
+## 🚀 Démarrage rapide
 
 ### Prérequis
+
 - Python 3.12+
-- pip
+- pip (GPU CUDA optionnel : détecté automatiquement par PyTorch)
 
 ### Installation
 
 ```bash
 git clone https://github.com/MELSIDI/TETRIS_RL.git
 cd TETRIS_RL
+python -m venv trl_env
+source trl_env/bin/activate        # Windows (Git Bash) : source trl_env/Scripts/activate
 pip install -r requirement.txt
 ```
 
-### Lancer le jeu
+### Commandes
 
 ```bash
-python main.py
+python main.py                      # Jouer en tant qu'humain
+python train.py                     # Entraîner l'agent (charge agent_weight.pth s'il existe)
+tensorboard --logdir runs           # Visualiser les courbes
 ```
 
-Utilisez les flèches directionnelles pour déplacer la pièce, `Espace` pour la faire pivoter, et essayez de battre le meilleur score enregistré ! 🏆
+---
+
+## 🛠️ Technologies
+
+- **Langage** : Python 3.12+
+- **Apprentissage** : PyTorch (Value Network), TD(0), Experience Replay
+- **Algorithmes** : BFS (placements et chemins), DFS (gravité par amas)
+- **Rendu** : Pygame 2.6.1
+- **Suivi** : TensorBoard, Matplotlib, tqdm, NumPy
 
 ---
 
-## 📋 Feuille de Route du Projet
+## 📄 Licence
 
-### Phase 1 : Moteur & Mode Humain (Terminé)
-
-- Construire un moteur physique robuste basé sur une matrice 10×20.
-- Implémenter les rotations Wall Kicks et la gravité DFS par amas (Sticky Blocks).
-- Développer l'interface visuelle Pygame et la boucle de Game Over/Redémarrage.
-
-### Phase 2 : Simulation de l'Agent Macro (Prochaines Étapes)
-
-- Implémenter un algorithme **BFS (Breadth-First Search)** au sein de l'environnement.
-- Générer tous les états de grille finaux valides et les chemins d'action possibles pour n'importe quelle pièce entrante.
-- Permettre au moteur d'exécuter des séquences d'actions automatiques générées par le chercheur de chemin BFS.
-
-### Phase 3 : Apprentissage par Renforcement (Prévu)
-
-- Connecter un réseau de neurones **PyTorch** (Value Network) pour évaluer les différents états du plateau.
-- Comparer la stabilité de l'apprentissage entre un agent **« Macro »** (qui sélectionne directement les états finaux générés par le BFS) et un agent **« Micro »** (qui choisit les pressions de touches de manière individuelle, action par action).
-
----
-
-## 🛠️ Technologies Utilisées
-
-- **Langage :** Python 3.12+
-- **Moteur Graphique :** Pygame (`pygame==2.6.1`)
-- **Algorithmes :** DFS (gravité par amas — implémenté), BFS (recherche de chemin — prévu)
-- **Apprentissage Automatique (prévu) :** PyTorch (Value Network)
-- **Persistance des Données :** fichier texte local (`best_score.txt`)
+Distribué sous licence précisée dans le fichier [`LICENSE`](./LICENSE).
