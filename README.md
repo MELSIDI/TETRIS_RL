@@ -32,12 +32,9 @@ Le **meilleur score de l'agent est de 262 940** (contre 395 pour le meilleur sco
 
 ## 🎬 Démo vidéo
 
-Entraînement de l'agent en direct (lecture en boucle) :
-
-<video src="./tetris_rl_agent_training_demo_compressed.mp4" controls autoplay loop muted playsinline width="320">
-  Votre navigateur ne supporte pas la balise vidéo.
-  <a href="./tetris_rl_agent_training_demo_compressed.mp4">Télécharger la vidéo</a>
-</video>
+<p align="center">
+  <img src="./tetris_rl_agent_training_demo_compressed.gif" alt="Demo" width="320">
+</p>
 
 > Si la vidéo ne s'affiche pas dans votre visionneuse Markdown,
 > [ouvrez-la directement ici](./tetris_rl_agent_training_demo_compressed.mp4).
@@ -81,15 +78,46 @@ L'agent ne choisit pas une touche à chaque instant : **pour chaque pièce, il c
 ### Vue d'ensemble de la boucle
 
 ```mermaid
-flowchart LR
-    A["Nouvelle pièce"] --> B["BFS : tous les placements finaux"]
-    B --> C["Le réseau évalue chaque afterstate"]
-    C --> D["Choix ε-greedy"]
-    D --> E["Exécution du chemin d'actions"]
-    E -->|"la gravité invalide le plan"| B
-    E -->|"pièce verrouillée"| F["Transition en mémoire + entraînement"]
-    F --> A
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "monospace", "fontSize": "15px", "lineColor": "#22c55e", "primaryTextColor": "#0b1f0b"}, "flowchart": {"curve": "basis", "nodeSpacing": 40, "rankSpacing": 45}}}%%
+flowchart TD
+    P(["🎮 Nouvelle pièce"]):::start
+    B["🔎 <b>BFS</b><br/>tous les placements finaux<br/>+ plus court chemin d'actions"]:::env
+    F["📐 <b>Features</b><br/>lignes · trous · bumpiness · hauteur<br/>+ one-hot de la pièce suivante"]:::agent
+    V["🧠 <b>Value Network</b><br/>11 → 64 → 64 → 1<br/>score V de chaque afterstate"]:::agent
+    E{"🎲 <b>ε-greedy</b>"}:::decision
+    R["🎯 Placement aléatoire<br/>probabilité ε"]:::explore
+    G["🏆 Meilleur placement<br/>argmax V · probabilité 1 − ε"]:::agent
+    X["⌨️ <b>Exécution du chemin</b><br/>← → ↻ ↓ ⤓"]:::env
+    Q{"⏱️ Gravité<br/>a bougé la pièce ?"}:::decision
+    L["🧱 <b>Verrouillage</b><br/>lignes effacées · gravité DFS · reward"]:::env
+    M[("💾 Replay memory<br/>30 000 transitions")]:::learn
+    T["📉 <b>TD(0) + Adam</b><br/>y = r + γ · V(s') · (1 − done)"]:::learn
+    O{"💀 Game over ?"}:::decision
+    N(["🔁 Nouvelle partie<br/>ε ← 0.997 · ε<br/>logs + sauvegarde"]):::start
+
+    P --> B --> F --> V --> E
+    E -- "ε" --> R
+    E -- "1 − ε" --> G
+    R --> X
+    G --> X
+    X --> Q
+    Q -. "oui : plan invalidé, on replanifie" .-> B
+    Q -- "non · pièce posée" --> L
+    L --> M --> T --> O
+    O -- "non" --> P
+    O -- "oui" --> N --> P
+
+    classDef start fill:#052e16,stroke:#22c55e,stroke-width:2px,color:#bbf7d0
+    classDef env fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e3a8a
+    classDef agent fill:#dcfce7,stroke:#22c55e,stroke-width:2px,color:#14532d
+    classDef explore fill:#fef9c3,stroke:#eab308,stroke-width:2px,color:#713f12
+    classDef learn fill:#ffedd5,stroke:#f97316,stroke-width:2px,color:#7c2d12
+    classDef decision fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px,color:#4c1d95
 ```
+
+🟦 environnement · 🟩 agent · 🟧 apprentissage · 🟪 décisions · 🟨 exploration
+
+Le réseau ne s'entraîne qu'une fois la mémoire remplie (au moins 512 transitions).
 
 ### 1. Afterstates et Value Network
 
@@ -109,16 +137,40 @@ L'agent apprend une **fonction de valeur d'afterstate** `V(s)` : la valeur du pl
 
 ### 2. Apprentissage TD(0)
 
-L'entraînement se fait par **différence temporelle à un pas**, sur la chaîne des afterstates réellement joués :
+L'entraînement se fait par **différence temporelle à un pas**, sur la chaîne des afterstates réellement joués. Notons $s_t$ le plateau avant le placement de la pièce $t$ (avec la pièce suivante), $s_{t+1}$ le plateau réel après verrouillage, et $r_t$ la récompense cumulée jusqu'au verrouillage (lignes + reward shaping).
 
-```
-V(état avant)  ←  r + γ · V(état réel après verrouillage) · (1 − done)
-```
+**Cible TD(0)** :
+
+$$
+y_t = r_t + \gamma \, V_\theta(s_{t+1}) \, (1 - d_t)
+$$
+
+où $\gamma = 0.99$ est le facteur d'actualisation et $d_t \in \{0, 1\}$ vaut $1$ si la partie est terminée.
+
+**Perte** (erreur quadratique moyenne sur un mini-batch $\mathcal{B}$ de 512 transitions tirées de la mémoire) :
+
+$$
+\mathcal{L}(\theta) = \frac{1}{|\mathcal{B}|} \sum_{t \in \mathcal{B}} \Big( V_\theta(s_t) - y_t \Big)^2
+$$
+
+**Mise à jour des poids** : le gradient est calculé sur $V_\theta(s_t)$ uniquement, la cible étant traitée comme une constante (`torch.no_grad()`), puis Adam met à jour les paramètres avec un pas $\alpha = 10^{-3}$ :
+
+$$
+\theta \leftarrow \theta - \alpha \, \text{Adam}\big(\nabla_\theta \mathcal{L}(\theta)\big)
+$$
+
+**Choix du placement** : parmi l'ensemble $\mathcal{A}_t$ des afterstates générés par le BFS, l'agent joue
+
+$$
+a_t = \arg\max_{s' \in \mathcal{A}_t} V_\theta(s')
+$$
+
+(sauf lors d'un tirage d'exploration, voir la section suivante).
 
 Choix de conception :
 
-- **Pas de max recalculé** pendant l'entraînement et **pas de réseau cible** : la cible utilise l'afterstate réellement atteint, ce qui reste correct même quand la gravité par amas modifie le plateau différemment de la prédiction.
-- **Experience Replay** : mémoire de 30 000 transitions, mini-batchs de 512.
+- **Pas de max recalculé** pendant l'entraînement et **pas de réseau cible** : la cible utilise l'afterstate réellement atteint $s_{t+1}$, ce qui reste correct même quand la gravité par amas modifie le plateau différemment de la prédiction.
+- **Experience Replay** : mémoire de 30 000 transitions $(s_t, s_{t+1}, r_t, d_t)$, mini-batchs de 512.
 - **Perte** : MSE, optimiseur Adam.
 
 | Hyperparamètre | Valeur |
