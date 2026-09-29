@@ -7,7 +7,7 @@
 ![Status](https://img.shields.io/badge/Statut-Termin%C3%A9-blue?style=for-the-badge)
 
 <p align="center">
-  <img src="./preview.png" alt="Aperçu de l'agent en train de jouer" width="320">
+  <img src="./tetris_rl_agent_training_demo_compressed.gif" alt="Demo" width="320">
 </p>
 
 **TETRIS_RL** est un projet complet d'**apprentissage par renforcement** : un moteur Tetris écrit de zéro en Python/Pygame, un chercheur de chemins (BFS) et un agent PyTorch qui apprend seul à jouer, sans aucune donnée humaine.
@@ -18,7 +18,6 @@ Le **meilleur score de l'agent est de 262 940** (contre 395 pour le meilleur sco
 
 ## 📖 Table des matières
 
-- [Démo vidéo](#-démo-vidéo)
 - [Le moteur de jeu](#️-le-moteur-de-jeu)
 - [L'agent : méthode de RL utilisée](#-lagent--méthode-de-rl-utilisée)
 - [Résultats et courbes d'entraînement](#-résultats-et-courbes-dentraînement)
@@ -27,17 +26,6 @@ Le **meilleur score de l'agent est de 262 940** (contre 395 pour le meilleur sco
 - [Démarrage rapide](#-démarrage-rapide)
 - [Technologies](#️-technologies)
 - [Licence](#-licence)
-
----
-
-## 🎬 Démo vidéo
-
-<p align="center">
-  <img src="./tetris_rl_agent_training_demo_compressed.gif" alt="Demo" width="320">
-</p>
-
-> Si la vidéo ne s'affiche pas dans votre visionneuse Markdown,
-> [ouvrez-la directement ici](./tetris_rl_agent_training_demo_compressed.mp4).
 
 ---
 
@@ -80,20 +68,20 @@ L'agent ne choisit pas une touche à chaque instant : **pour chaque pièce, il c
 ```mermaid
 %%{init: {"theme": "base", "themeVariables": {"fontFamily": "monospace", "fontSize": "15px", "lineColor": "#22c55e", "primaryTextColor": "#0b1f0b"}, "flowchart": {"curve": "basis", "nodeSpacing": 40, "rankSpacing": 45}}}%%
 flowchart TD
-    P(["🎮 Nouvelle pièce"]):::start
-    B["🔎 <b>BFS</b><br/>tous les placements finaux<br/>+ plus court chemin d'actions"]:::env
-    F["📐 <b>Features</b><br/>lignes · trous · bumpiness · hauteur<br/>+ one-hot de la pièce suivante"]:::agent
-    V["🧠 <b>Value Network</b><br/>11 → 64 → 64 → 1<br/>score V de chaque afterstate"]:::agent
-    E{"🎲 <b>ε-greedy</b>"}:::decision
-    R["🎯 Placement aléatoire<br/>probabilité ε"]:::explore
-    G["🏆 Meilleur placement<br/>argmax V · probabilité 1 − ε"]:::agent
-    X["⌨️ <b>Exécution du chemin</b><br/>← → ↻ ↓ ⤓"]:::env
-    Q{"⏱️ Gravité<br/>a bougé la pièce ?"}:::decision
-    L["🧱 <b>Verrouillage</b><br/>lignes effacées · gravité DFS · reward"]:::env
-    M[("💾 Replay memory<br/>30 000 transitions")]:::learn
-    T["📉 <b>TD(0) + Adam</b><br/>y = r + γ · V(s') · (1 − done)"]:::learn
-    O{"💀 Game over ?"}:::decision
-    N(["🔁 Nouvelle partie<br/>ε ← 0.997 · ε<br/>logs + sauvegarde"]):::start
+    P([" Nouvelle pièce"]):::start
+    B[" <b>BFS</b><br/>tous les placements finaux<br/>+ plus court chemin d'actions"]:::env
+    F[" <b>Features</b><br/>lignes · trous · bumpiness · hauteur<br/>+ one-hot de la pièce suivante"]:::agent
+    V[" <b>Value Network</b><br/>11 → 64 → 64 → 1<br/>score V de chaque afterstate"]:::agent
+    E{" <b>ε-greedy</b>"}:::decision
+    R[" Placement aléatoire<br/>probabilité ε"]:::explore
+    G[" Meilleur placement<br/>argmax V · probabilité 1 − ε"]:::agent
+    X[" <b>Exécution du chemin</b><br/>← → ↻ ↓ ⤓"]:::env
+    Q{" Gravité<br/>a bougé la pièce ?"}:::decision
+    L[" <b>Verrouillage</b><br/>lignes effacées · gravité DFS · reward"]:::env
+    M[(" Replay memory<br/>30 000 transitions")]:::learn
+    T[" <b>TD(0) + Adam</b><br/>y = r + γ · V(s') · (1 − done)"]:::learn
+    O{" Game over ?"}:::decision
+    N([" Nouvelle partie<br/>ε ← 0.997 · ε<br/>logs + sauvegarde"]):::start
 
     P --> B --> F --> V --> E
     E -- "ε" --> R
