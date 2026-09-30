@@ -7,7 +7,7 @@
 ![Status](https://img.shields.io/badge/Statut-Termin%C3%A9-blue?style=for-the-badge)
 
 <p align="center">
-  <img src="./tetris_rl_agent_training_demo_compressed.gif" alt="Demo" width="320">
+  <img src="./docs/tetris_rl_agent_training_demo_compressed.gif" alt="Demo" width="320">
 </p>
 
 **TETRIS_RL** est un projet complet d'**apprentissage par renforcement** : un moteur Tetris écrit de zéro en Python/Pygame, un chercheur de chemins (BFS) et un agent PyTorch qui apprend seul à jouer, sans aucune donnée humaine.
@@ -121,7 +121,11 @@ L'agent apprend une **fonction de valeur d'afterstate** `V(s)` : la valeur du pl
 | `aggregate_height` | Somme des hauteurs de toutes les colonnes |
 | one-hot × 7 | Type de la pièce suivante |
 
-**Architecture** : MLP `11 → 64 → 64 → 1` (ReLU), qui renvoie une valeur scalaire.
+**Architecture** : MLP `11 → 64 → 64 → 1` (ReLU), qui renvoie une valeur scalaire. Le réseau compte **4 993 paramètres** au total (768 + 4 160 + 65).
+
+<p align="center">
+  <img src="./docs/mlp_architecture.svg" alt="Architecture du Value Network : 11 → 64 → 64 → 1 avec activations ReLU" width="80%">
+</p>
 
 ### 2. Apprentissage TD(0)
 
@@ -189,15 +193,15 @@ Les métriques sont suivies avec TensorBoard puis exportées en SVG.
 
 ### Score par partie
 
-![Progression du score](./Progression_Score.svg)
+![Progression du score](./docs/Progression_Score.svg)
 
 ### Perte moyenne par partie
 
-![Progression de la perte moyenne](./Progression_Mean-Loss.svg)
+![Progression de la perte moyenne](./docs/Progression_Mean-Loss.svg)
 
 ### Perte à chaque étape d'entraînement
 
-![Progression de la perte](./Progression_Loss.svg)
+![Progression de la perte](./docs/Progression_Loss.svg)
 
 Pour rejouer les courbes : `tensorboard --logdir runs`
 
@@ -240,11 +244,14 @@ TETRIS_RL/
 ├── best_score.txt                   # Record humain
 ├── runs/                            # Logs TensorBoard
 │
-├── preview.png                      # Aperçu du jeu
-├── Progression_Score.svg            # Courbe : score
-├── Progression_Mean-Loss.svg        # Courbe : perte moyenne par partie
-├── Progression_Loss.svg             # Courbe : perte par étape
-├── tetris_rl_agent_training_demo_compressed.mp4   # Vidéo de démonstration
+├── tetris/                                            # Package : moteur du jeu
+│   ├── preview.png                                    # Aperçu du jeu
+│   ├── Progression_Score.svg                          # Courbe : score
+│   ├── Progression_Mean-Loss.svg                      # Courbe : perte moyenne par partie
+│   ├── Progression_Loss.svg                           # Courbe : perte par étape
+│   ├── tetris_rl_agent_training_demo_compressed.mp4   # Vidéo de démonstration
+│   ├── tetris_rl_agent_training_demo_compressed.gif   # Gif de démonstration
+│   └── mlp_architecture.svg                           # Architecture du Value Network
 │
 ├── requirement.txt
 ├── LICENSE
